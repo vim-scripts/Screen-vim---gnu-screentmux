@@ -1,5 +1,5 @@
 " Author: Eric Van Dewoestine <ervandew@gmail.com>
-" Version: 0.5
+" Version: 0.6
 "
 " Description: {{{
 "   This plugin aims to simulate an embedded shell in vim by allowing you to
@@ -410,9 +410,6 @@ endfunction " }}}
 " s:ScreenInit(cmd) {{{
 " Initialize the current screen session.
 function! s:ScreenInit(cmd)
-  let g:ScreenShellSession = exists('g:ScreenShellSession') ?
-    \ g:ScreenShellSession : substitute(tempname(), '\W', '', 'g')
-
   let g:ScreenShellWindow = 'shell'
   " use a portion of the command as the title, if supplied
   if a:cmd != '' && a:cmd !~ '^\s*vim\>'
@@ -451,31 +448,54 @@ function! s:ScreenInit(cmd)
       \ '"screen -t ' . g:ScreenShellWindow . '" ')
 
     if !v:shell_error && a:cmd != ''
-      let cmd = a:cmd . "\<c-m>"
+      let cmd = a:cmd . "\<cr>"
       let result = s:ScreenExec(
         \ '-p ' . g:ScreenShellWindow . ' -X stuff "' . cmd . '"')
     endif
 
   " use an external terminal
   else
+    let g:ScreenShellSession = exists('g:ScreenShellSession') ?
+      \ g:ScreenShellSession : substitute(tempname(), '\W', '', 'g')
+
     if !has('gui_running') && exists('g:ScreenShellBootstrapped')
       let result = s:ScreenExec('-X eval ' .
-        \ '"screen -t ' . g:ScreenShellWindow . ' ' . a:cmd . '" ' .
-        \ '"other"')
+        \ '"screen -t ' . g:ScreenShellWindow . '" ' . '"other"')
+
       if !v:shell_error
         let result = s:StartScreenTerminal('-S ' . g:ScreenShellSession . ' -x')
+
+        if !v:shell_error && result != '0' && a:cmd != ''
+          let cmd = a:cmd . "\<cr>"
+          let result = s:ScreenExec(
+            \ '-p ' . g:ScreenShellWindow . ' -X stuff "' . cmd . '"')
+        endif
       endif
 
     else
-      let result = s:ScreenExec('-d -m')
-      if !v:shell_error && result != '0'
-        let result = s:StartScreenTerminal('-r ' . g:ScreenShellSession)
+      if has('win32') || has('win64') || has('win32unix')
+        let result = s:StartScreenTerminal('-S ' . g:ScreenShellSession)
+        " like, the sleep hack below, but longer for windows.
+        sleep 1000m
+      else
+        let result = s:ScreenExec('-d -m')
+        if !v:shell_error && result != '0'
+          let result = s:StartScreenTerminal('-r ' . g:ScreenShellSession)
+        endif
       endif
+
       if !v:shell_error && result != '0'
         " Hack, but should be plenty of time to let screen get to a state
         " where it will apply the title command.
         sleep 500m
         let result = s:ScreenExec('-X title ' . g:ScreenShellWindow)
+
+        " execute the supplied command if any
+        if !v:shell_error && a:cmd != ''
+          let cmd = a:cmd . "\<cr>"
+          let result = s:ScreenExec(
+            \ '-p ' . g:ScreenShellWindow . ' -X stuff "' . cmd . '"')
+        endif
       endif
     endif
   endif
@@ -574,7 +594,12 @@ endfunction " }}}
 " Execute a screen command, handling execution difference between cygwin and a
 " real unix system.
 function! s:ScreenExec(cmd)
-  let cmd = 'screen -S ' . g:ScreenShellSession . ' ' . a:cmd
+  let cmd = 'screen '
+  if exists('g:ScreenShellSession')
+    let cmd .= '-S ' . g:ScreenShellSession . ' '
+  endif
+  let cmd .= a:cmd
+
   if has('win32unix')
     let result = ''
     exec 'silent! !' . cmd
