@@ -1,12 +1,12 @@
 " Author: Eric Van Dewoestine <ervandew@gmail.com>
-" Version: 0.6
+" Version: 0.7
 "
 " Description: {{{
 "   This plugin aims to simulate an embedded shell in vim by allowing you to
 "   easily convert your current vim session into one running in gnu screen
 "   with a split gnu screen window containing a shell, and to quickly send
 "   statements/code to whatever program is running in that shell (bash,
-"   python, irb, etc.).  Spawing the shell in your favorite terminal emulator
+"   python, irb, etc.).  Spawning the shell in your favorite terminal emulator
 "   is also supported for gvim users or anyone else that just prefers an
 "   external shell.
 "
@@ -359,6 +359,15 @@ function! s:ScreenBootstrap(cmd)
       if bufnr(bufnum) != -1
         call setbufvar(bufnum, 'save_swapfile', getbufvar(bufnum, '&swapfile'))
         call setbufvar(bufnum, '&swapfile', 0)
+
+        " suppress prompt and auto reload changed files for the user when
+        " returning to this vim session
+        augroup screen_shell_file_changed
+          exec 'autocmd! FileChangedShell <buffer=' . bufnum . '>'
+          exec 'autocmd FileChangedShell <buffer=' . bufnum . '> ' .
+            \ 'let v:fcs_choice = (v:fcs_reason == "changed" ? "reload" : "ask") | ' .
+            \ 'autocmd! screen_shell_file_changed FileChangedShell <buffer=' . bufnum . '>'
+        augroup END
       endif
       let bufnum = bufnum + 1
     endwhile
@@ -513,9 +522,10 @@ function! s:ScreenSend(line1, line2)
   if mode != '' && line("'<") == a:line1
     if mode == "v"
       let start = col("'<") - 1
-      let end = col("'>")
-      let lines[0] = lines[0][start :]
+      let end = col("'>") - 1
+      " slice in end before start in case the selection is only one line
       let lines[-1] = lines[-1][: end]
+      let lines[0] = lines[0][start :]
     elseif mode == "\<c-v>"
       let start = col("'<")
       if col("'>") < start
