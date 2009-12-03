@@ -1,5 +1,6 @@
 " Author: Eric Van Dewoestine <ervandew@gmail.com>
-" Version: 0.8
+" Version: 1.0
+" GetLatestVimScripts: 2711 1 :AutoInstall: screen.vim
 "
 " Description: {{{
 "   This plugin aims to simulate an embedded shell in vim by allowing you to
@@ -9,127 +10,6 @@
 "   python, irb, etc.).  Spawning the shell in your favorite terminal emulator
 "   is also supported for gvim users or anyone else that just prefers an
 "   external shell.
-"
-"   Currently tested on Linux and Windows (win32 [g]vim and cygwin vim), but
-"   should also work on any unix based platform where screen is supported
-"   (OSX, BSD, Solaris, etc.).  Note that in my testing of cygwin, invocations
-"   of screen were significantly slower and less fluid than on Linux.  The
-"   Windows experience is better when using gvim to spawn a cygwin shell
-"   running screen.
-"
-"   Windows Users: Whether you are using gvim or not, you will need cygwin
-"   installed with cygwin's bin directory in your windows PATH.
-"
-"   Commands:
-"     :ScreenShell [cmd] - Starts a screen hosted shell performing the
-"       following steps depending on your environment.
-"
-"       When running a console vim on a unix based OS (Linux, BSD, OSX):
-"         1. save a session file from your currently running vim instance
-"            (current tab only)
-"         2. start gnu screen with vim running in it
-"         3. load your saved session file
-"         4. create a lower gnu screen split window and start a shell, or if
-"            g:ScreenShellExternal is set, start an external terminal with
-"            screen running.
-"         5. if a command was supplied to :ScreenShell, run it in the new
-"            shell.
-"            Ex. :ScreenShell ipython
-"
-"         Note: If you are already in a gnu screen session, then only steps
-"               4 and 5 above will be run.
-"
-"       When running gvim:
-"         1. start an external terminal with screen running.
-"         2. if a command was supplied to :ScreenShell, run it in the new
-"            shell.
-"            Ex. :ScreenShell ipython
-"
-"     :ScreenSend - Send the visual selection or the entire buffer contents to
-"       the running gnu screen shell window.
-"
-"     :ScreenQuit - Save all currently modified vim buffers and quit gnu
-"       screen, returning you to your previous vim instance running outside of
-"       gnu screen
-"       Note: :ScreenQuit is not available if you where already in a gnu
-"         screen session when you ran :ScreenShell.
-"       Note: By default, if the gnu screen session was started by
-"         :ScreenShell, then exiting vim will quit the gnu screen session as
-"         well (configurable via g:ScreenShellQuitOnVimExit).
-"
-"     :ScreenShellAttach [session] - Sets the necessary internal variables to allow
-"       :ScreenSend invocations to send to the specified screen session.  If
-"       no session is provided, then the first session found is used.  If the
-"       session is in the "Detached" state, then a new terminal is opened with
-"       a new screen instance attached to the session. Attaching to a detached
-"       session is not currently supported on windows due to deficiencies in
-"       the cygwin version of gnu screen.  Also note, that for screen sessions
-"       attached to via this mechanism, :ScreenSend invocations will send the
-"       text to the active screen window instead of targeting the 'shell'
-"       window when used from :ScreenShell.
-"
-"   An example workflow may be:
-"     Open a python file to work on:
-"       $ vim something.py
-"
-"     Decide you want to run all or pieces of the code in an interactive
-"     python shell:
-"       :ScreenShell python
-"
-"     Send code from a vim buffer to the shell:
-"       :ScreenSend
-"
-"     Quit the screen session and return to your original vim session:
-"       :ScreenQuit
-"         or
-"       :qa
-"
-"   Configuration:
-"     - g:ScreenShellHeight (Default: 15): Sets the height of gnu screen
-"       region used for the shell.
-"     - g:ScreenShellQuitOnVimExit (Default: 1): When non-zero and the gnu
-"       screen session was started by this script, the screen session will be
-"       closed when vim exits.
-"     - g:ScreenShellExternal (Default: 0): When non-zero and not already in a
-"       screen session, an external shell will be spawned instead of using a
-"       split region for the shell.  Note: when using gvim, an external shell
-"       is always used.
-"     - g:ScreenShellServerName: If the gnu screen session is started by this
-"       plugin, then the value of this setting will be used for the servername
-"       arg of the vim instance started in the new gnu screen session (not
-"       applicable for gvim users).  The default is 'vim' unless you have
-"       g:ScreenShellExternal enabled, in which case, if you still want to
-"       restart vim in a screen session with a servername, then simply set
-"       this variable in your vimrc.
-"     - g:ScreenShellTerminal (Default: ''): When g:ScreenShellExternal is
-"       enabled or you are running gvim, this value will be used as the name
-"       of the terminal executable to be used.  If this value is empty, a list
-"       of common terminals will be tried until one is found.
-"
-"   Script Integration:
-"     To permit integration with your own, or 3rd party, scripts, a funcref is
-"     made globally available while the screen shell mode is enabled, allowing
-"     you to send your own strings to the attached shell.
-"
-"     Here are some examples of using this funcref to send some commands to
-"     bash:
-"       call ScreenShellSend("echo foo\necho bar")
-"       call ScreenShellSend('echo -e "foo\nbar"')
-"       call ScreenShellSend("echo -e \"foo\\nbar\"")
-"
-"     Sending a list of strings is also supported:
-"       call ScreenShellSend(["echo foo", "echo bar"])
-"
-"     You can test that the funcref exists using:
-"        exists('ScreenShellSend')
-"
-"   Gotchas:
-"     - While running vim in gnu screen, if you detach the session instead of
-"       quitting, then when returning to the non-screen vim, vim will complain
-"       about swap files already existing.  So try to avoid detaching.
-"     - Not all vim plugins support saving state to or loading from vim
-"       session files, so when running :ScreenShell some buffers may not load
-"       correctly if they are backed by such a plugin.
 "
 " }}}
 "
@@ -170,7 +50,19 @@
 "   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 " }}}
 
+let s:save_cpo=&cpo
+set cpo&vim
+
 " Global Variables {{{
+
+  if !exists('g:ScreenImpl')
+    let g:ScreenImpl = 'GnuScreen'
+    "let g:ScreenImpl = 'Tmux'
+  endif
+
+  if !exists('g:ScreenShellTmuxInitArgs')
+    let g:ScreenShellTmuxInitArgs = ''
+  endif
 
   " Sets the height of the gnu screen window used for the shell.
   if !exists('g:ScreenShellHeight')
@@ -220,7 +112,7 @@
 " Commands {{{
 
   if !exists(':ScreenShell')
-    command -nargs=? ScreenShell :call <SID>ScreenShell('<args>')
+    command -nargs=? -complete=shellcmd ScreenShell :call <SID>ScreenShell('<args>')
   endif
 
   if !exists(':ScreenShellAttach')
@@ -249,8 +141,7 @@
 " s:ScreenShell(cmd) {{{
 " Open a split shell.
 function! s:ScreenShell(cmd)
-  if !executable('screen')
-    echoerr 'gnu screen not found'
+  if !s:screen{g:ScreenImpl}.isValid()
     return
   endif
 
@@ -261,7 +152,7 @@ function! s:ScreenShell(cmd)
     " then don't bootstrap
     if bootstrap
       if g:ScreenShellExternal &&
-       \ (g:ScreenShellServerName == '' ||
+       \ (g:ScreenShellServerName == '' || g:ScreenImpl == 'Tmux' ||
        \  !has('clientserver') || has('win32') || has('win64'))
         let bootstrap = 0
       endif
@@ -281,55 +172,16 @@ endfunction " }}}
 " s:ScreenShellAttach(session) {{{
 " Attach to an existing screen session.
 function! s:ScreenShellAttach(session)
-  if !executable('screen')
-    echoerr 'gnu screen not found'
+  if !s:screen{g:ScreenImpl}.isValid()
     return
   endif
 
-  let sessions = s:GetScreenSessions()
-  if a:session != ''
-    let session = []
-    for s in sessions
-      if s[0] == a:session
-        let session = s
-        break
-      endif
-    endfor
+  let g:ScreenShellSession = s:screen{g:ScreenImpl}.attachSession(a:session)
 
-    if len(session) == 0
-      echoerr 'unable to find the gnu screen session "' . a:session . '"'
-      return
-    endif
-  elseif len(sessions) > 0
-    if has('win32') || has('win64') || has('win32unix')
-      call filter(sessions, 'v:val[1] != "detached"')
-    endif
-    let session = sessions[0]
-  else
-    echoerr 'unable to find any gnu screen sessions'
-    return
-  endif
-
-  if session[1] == 'detached'
-    if has('win32') || has('win64') || has('win32unix')
-      echoerr 'attaching to a session in the "Detached" state is not ' .
-        \ 'supported on windows due to deficiencies in the cygwin version ' .
-        \ 'of gnu screen.'
-      return
-    endif
-    let result = s:StartScreenTerminal('-r ' . g:ScreenShellSession)
-    if result == '0'
-      return
-    endif
-    if v:shell_error
-      echoerr result
-    endif
-  endif
-
-  let g:ScreenShellSession = session[0]
-  if !exists(':ScreenSend')
+  if g:ScreenShellSession != '0' && !exists(':ScreenSend')
     command -nargs=0 -range=% ScreenSend :call <SID>ScreenSend(<line1>, <line2>)
     let g:ScreenShellSend = s:ScreenSendFuncRef()
+    let g:ScreenShellFocus = s:ScreenFocusFuncRef()
   endif
 endfunction " }}}
 
@@ -338,7 +190,7 @@ endfunction " }}}
 function! s:ScreenBootstrap(cmd)
   try
     let g:ScreenShellBootstrapped = 1
-    let g:ScreenShellSession = substitute(tempname(), '\W', '', 'g')
+    let g:ScreenShellSession = s:screen{g:ScreenImpl}.newSessionName()
 
     wa
     let save_sessionoptions = &sessionoptions
@@ -403,11 +255,10 @@ function! s:ScreenBootstrap(cmd)
       let server = ''
     endif
 
-    exec 'silent! !screen -S ' . g:ScreenShellSession .
-      \ ' vim ' . server .
-      \ '-c "silent source ' . escape(sessionfile, ' ') . '" ' .
-      \ '-c "ScreenShell ' . a:cmd . '"'
+    call s:screen{g:ScreenImpl}.bootstrap(server, sessionfile, a:cmd)
   finally
+    redraw!
+
     unlet g:ScreenShellBootstrapped
 
     " if there was an error writing files, then we didn't get far enough to
@@ -423,13 +274,42 @@ function! s:ScreenBootstrap(cmd)
 
       redraw!
 
+      let possible_detach = 0
       let bufnum = 1
-      while bufnum <= bufend
-        if bufnr(bufnum) != -1
-          call setbufvar(bufnum, '&swapfile', getbufvar(bufnum, 'save_swapfile'))
-        endif
-        let bufnum = bufnum + 1
-      endwhile
+      let winrestcmd = winrestcmd()
+      new
+      try
+        while bufnum <= bufend
+          if bufnr(bufnum) != -1
+            try
+              call setbufvar(bufnum, '&swapfile', getbufvar(bufnum, 'save_swapfile'))
+            catch /E325/
+              let possible_detach = 1
+              exec 'buffer ' . bufnum
+              try
+                redraw
+                edit
+              catch
+              endtry
+            endtry
+          endif
+          let bufnum = bufnum + 1
+        endwhile
+      finally
+        quit!
+        exec winrestcmd
+      endtry
+
+      if possible_detach
+        echohl WarningMsg
+        echom 'Warning: detatching from a screen session started by ' .
+            \ ':ScreenShell may result in conflicting swap files like those ' .
+            \ 'just encountered. Due to this possibility, detaching from a ' .
+            \ 'screen session started by :ScreenShell is discouraged.  ' .
+            \ 'Instead you should issue a :ScreenQuit or exit the vim ' .
+            \ 'instance in screen normally (:qa)'
+        echohl None
+      endif
     endif
   endtry
 endfunction " }}}
@@ -437,11 +317,11 @@ endfunction " }}}
 " s:ScreenInit(cmd) {{{
 " Initialize the current screen session.
 function! s:ScreenInit(cmd)
-  let g:ScreenShellWindow = 'shell'
+  let g:ScreenShellWindow = 'screenshell'
   " use a portion of the command as the title, if supplied
-  if a:cmd != '' && a:cmd !~ '^\s*vim\>'
-    let g:ScreenShellWindow = s:ScreenCmdName(a:cmd)[:15]
-  endif
+  "if a:cmd != '' && a:cmd !~ '^\s*vim\>'
+  "  let g:ScreenShellWindow = s:ScreenCmdName(a:cmd)[:15]
+  "endif
 
   " when already running in a screen session, never use an external shell
   let external = !exists('g:ScreenShellBootstrapped') &&
@@ -462,6 +342,7 @@ function! s:ScreenInit(cmd)
   if !exists(':ScreenSend')
     command -nargs=0 -range=% ScreenSend :call <SID>ScreenSend(<line1>, <line2>)
     let g:ScreenShellSend = s:ScreenSendFuncRef()
+    let g:ScreenShellFocus = s:ScreenFocusFuncRef()
     " remove :ScreenShell command to avoid accidentally calling it again.
     delcommand ScreenShell
     delcommand ScreenShellAttach
@@ -469,60 +350,55 @@ function! s:ScreenInit(cmd)
 
   " use screen regions
   if !external
-    let result = s:ScreenExec('-X eval ' .
-      \ '"split" ' .
-      \ '"focus down" ' .
-      \ '"resize ' . g:ScreenShellHeight . '" ' .
-      \ '"screen -t ' . g:ScreenShellWindow . '" ')
+    let result = s:screen{g:ScreenImpl}.openRegion()
 
     if !v:shell_error && a:cmd != ''
       let cmd = a:cmd . "\<cr>"
-      let result = s:ScreenExec(
-        \ '-p ' . g:ScreenShellWindow . ' -X stuff "' . cmd . '"')
+      let result = s:screen{g:ScreenImpl}.send(cmd)
     endif
 
   " use an external terminal
   else
     let g:ScreenShellSession = exists('g:ScreenShellSession') ?
-      \ g:ScreenShellSession : substitute(tempname(), '\W', '', 'g')
+      \ g:ScreenShellSession : s:screen{g:ScreenImpl}.newSessionName()
 
-    if !has('gui_running') && exists('g:ScreenShellBootstrapped')
-      let result = s:ScreenExec('-X eval ' .
-        \ '"screen -t ' . g:ScreenShellWindow . '" ' . '"other"')
+    " This block should only be hit in console mode with external terminal +
+    " vim server name set.
+    " Not supported by tmux since it doesn't appear that you can have
+    " more than one terminal connected to a session without them all
+    " focusing the same window.
+    if !has('gui_running') &&
+     \ exists('g:ScreenShellBootstrapped') &&
+     \ g:ScreenImpl != 'Tmux'
+
+      let result = s:screen{g:ScreenImpl}.newWindow(0)
 
       if !v:shell_error
-        let result = s:StartScreenTerminal('-S ' . g:ScreenShellSession . ' -x')
+        let result = s:screen{g:ScreenImpl}.newTerminalMulti()
 
         if !v:shell_error && result != '0' && a:cmd != ''
           let cmd = a:cmd . "\<cr>"
-          let result = s:ScreenExec(
-            \ '-p ' . g:ScreenShellWindow . ' -X stuff "' . cmd . '"')
+          let result = s:screen{g:ScreenImpl}.send(cmd)
         endif
       endif
 
     else
+      let result = s:screen{g:ScreenImpl}.newTerminal()
       if has('win32') || has('win64') || has('win32unix')
-        let result = s:StartScreenTerminal('-S ' . g:ScreenShellSession)
         " like, the sleep hack below, but longer for windows.
         sleep 1000m
-      else
-        let result = s:ScreenExec('-d -m')
-        if !v:shell_error && result != '0'
-          let result = s:StartScreenTerminal('-r ' . g:ScreenShellSession)
-        endif
       endif
 
       if !v:shell_error && result != '0'
         " Hack, but should be plenty of time to let screen get to a state
         " where it will apply the title command.
         sleep 500m
-        let result = s:ScreenExec('-X title ' . g:ScreenShellWindow)
+        let result = s:screen{g:ScreenImpl}.setTitle()
 
         " execute the supplied command if any
         if !v:shell_error && a:cmd != ''
           let cmd = a:cmd . "\<cr>"
-          let result = s:ScreenExec(
-            \ '-p ' . g:ScreenShellWindow . ' -X stuff "' . cmd . '"')
+          let result = s:screen{g:ScreenImpl}.send(cmd)
         endif
       endif
     endif
@@ -578,21 +454,7 @@ function! s:ScreenSend(...)
   let tmp = tempname()
   call writefile(lines, tmp)
   try
-    if exists('g:ScreenShellWindow')
-      let result = s:ScreenExec(
-        \ '-p ' . g:ScreenShellWindow .  ' -X eval ' .
-        \ '"msgminwait 0" ' .
-        \ '"readbuf ' . tmp . '" ' .
-        \ '"at ' . g:ScreenShellWindow . ' paste ." ' .
-        \ '"msgminwait 1"')
-    else
-      let result = s:ScreenExec(
-        \ '-X eval ' .
-        \ '"msgminwait 0" ' .
-        \ '"readbuf ' . tmp . '" ' .
-        \ '"paste ." ' .
-        \ '"msgminwait 1"')
-    endif
+    let result = s:screen{g:ScreenImpl}.sendTempBuffer(tmp)
   finally
     call delete(tmp)
   endtry
@@ -602,10 +464,25 @@ function! s:ScreenSend(...)
   endif
 endfunction " }}}
 
+" s:ScreenFocus() {{{
+function! s:ScreenFocus()
+  let result = s:screen{g:ScreenImpl}.focus()
+
+  if v:shell_error
+    echoerr result
+  endif
+endfun " }}}
+
 " s:ScreenSendFuncRef() {{{
-function s:ScreenSendFuncRef()
+function! s:ScreenSendFuncRef()
   let sid = matchstr(expand('<sfile>'), '<SNR>\zs\d\+\ze_ScreenSendFuncRef$')
   return function(printf('<SNR>%s_ScreenSend', sid))
+endfun " }}}
+
+" s:ScreenFocusFuncRef() {{{
+function! s:ScreenFocusFuncRef()
+  let sid = matchstr(expand('<sfile>'), '<SNR>\zs\d\+\ze_ScreenFocusFuncRef$')
+  return function(printf('<SNR>%s_ScreenFocus', sid))
 endfun " }}}
 
 " s:ScreenQuit(onleave) {{{
@@ -632,38 +509,19 @@ function! s:ScreenQuit(onleave)
     delcommand ScreenQuit
     delcommand ScreenSend
     unlet g:ScreenShellSend
+    unlet g:ScreenShellFocus
     augroup screen_shell
       autocmd!
     augroup END
   endif
 
-  let result = s:ScreenExec('-X quit')
+  let result = s:screen{g:ScreenImpl}.quit()
 
   if v:shell_error
     if result !~ 'No screen session found'
       echoerr result
     endif
   endif
-endfunction " }}}
-
-" s:ScreenExec(cmd) {{{
-" Execute a screen command, handling execution difference between cygwin and a
-" real unix system.
-function! s:ScreenExec(cmd)
-  let cmd = 'screen '
-  if exists('g:ScreenShellSession')
-    let cmd .= '-S ' . g:ScreenShellSession . ' '
-  endif
-  let cmd .= a:cmd
-
-  if has('win32unix')
-    let result = ''
-    exec 'silent! !' . cmd
-    redraw!
-  else " system() works for windows gvim too
-    let result = system(cmd)
-  endif
-  return result
 endfunction " }}}
 
 " s:ScreenCmdName(cmd) {{{
@@ -677,15 +535,13 @@ function! s:ScreenCmdName(cmd)
   return cmd
 endfunction " }}}
 
-" s:StartScreenTerminal(screen_args) {{{
-function! s:StartScreenTerminal(screen_args)
+" s:StartTerminal(command) {{{
+function! s:StartTerminal(command)
   let terminal = s:GetTerminal()
   if !s:ValidTerminal(terminal)
     echoerr 'Unable to find a terminal, please set g:ScreenShellTerminal'
     return
   endif
-
-  let screen_cmd = 'screen ' . a:screen_args
 
   " handle using cygwin bash
   if has('win32') || has('win64') || has('win32unix')
@@ -695,7 +551,7 @@ function! s:StartScreenTerminal(screen_args)
       let command = substitute(command, '\', '/', 'g')
       let command = 'cmd /c ' . command
     endif
-    let command .= ' --login -c "' . screen_cmd . '"'
+    let command .= ' --login -c "' . a:command . '"'
     exec 'silent !' . command
     redraw!
 
@@ -704,10 +560,10 @@ function! s:StartScreenTerminal(screen_args)
   " quotes.  xterm seems content either way, so we'll treat gnome-terminal
   " as the odd ball here.
   elseif terminal == 'gnome-terminal'
-    let result = system(terminal . ' -e "' . screen_cmd . '" &')
+    let result = system(terminal . ' -e "' . a:command . '" &')
 
   else
-    let result = system(terminal . ' -e ' . screen_cmd . ' &')
+    let result = system(terminal . ' -e ' . a:command . ' &')
   endif
   return result
 endfunction " }}}
@@ -760,16 +616,296 @@ function! s:CommandCompleteScreenSessions(argLead, cmdLine, cursorPos)
   let cmdTail = strpart(a:cmdLine, a:cursorPos)
   let argLead = substitute(a:argLead, cmdTail . '$', '', '')
 
-  let sessions = s:GetScreenSessions()
-  if has('win32') || has('win64') || has('win32unix')
-    call filter(sessions, 'v:val[1] != "detached"')
-  endif
-  call map(sessions, 'v:val[0]')
-  if cmdLine !~ '[^\\]\s$'
-    call filter(sessions, 'v:val =~ "^' . argLead . '"')
+  if g:ScreenImpl == 'GnuScreen'
+    let sessions = s:GetScreenSessions()
+    if has('win32') || has('win64') || has('win32unix')
+      call filter(sessions, 'v:val[1] != "detached"')
+    endif
+    call map(sessions, 'v:val[0]')
+    if cmdLine !~ '[^\\]\s$'
+      call filter(sessions, 'v:val =~ "^' . argLead . '"')
+    endif
+
+    return sessions
   endif
 
-  return sessions
+  return []
 endfunction " }}}
+
+let s:screenGnuScreen = {}
+
+function s:screenGnuScreen.isValid() dict " {{{
+  if !executable('screen')
+    echoerr 'gnu screen not found in your path'
+    return 0
+  endif
+  return 1
+endfunction " }}}
+
+function s:screenGnuScreen.attachSession(session) dict " {{{
+  let sessions = s:GetScreenSessions()
+  if a:session != ''
+    let session = []
+    for s in sessions
+      if s[0] == a:session
+        let session = s
+        break
+      endif
+    endfor
+
+    if len(session) == 0
+      echoerr 'unable to find the gnu screen session "' . a:session . '"'
+      return
+    endif
+  elseif len(sessions) > 0
+    if has('win32') || has('win64') || has('win32unix')
+      call filter(sessions, 'v:val[1] != "detached"')
+    endif
+    let session = sessions[0]
+  else
+    echoerr 'unable to find any gnu screen sessions'
+    return
+  endif
+
+  if session[1] == 'detached'
+    if has('win32') || has('win64') || has('win32unix')
+      echoerr 'attaching to a session in the "Detached" state is not ' .
+        \ 'supported on windows due to deficiencies in the cygwin version ' .
+        \ 'of gnu screen.'
+      return
+    endif
+    let result = s:screen{g:ScreenImpl}.newTerminalResume()
+    if result == '0'
+      return
+    endif
+    if v:shell_error
+      echoerr result
+    endif
+  endif
+
+  return session[0]
+endfunction " }}}
+
+function s:screenGnuScreen.bootstrap(server, sessionfile, cmd) dict " {{{
+  exec 'silent! !screen -S ' . g:ScreenShellSession .
+    \ ' vim ' . a:server .
+    \ '-c "silent source ' . escape(a:sessionfile, ' ') . '" ' .
+    \ '-c "ScreenShell ' . a:cmd . '"'
+endfunction " }}}
+
+function s:screenGnuScreen.newSessionName() dict " {{{
+  return substitute(tempname(), '\W', '', 'g')
+endfunction " }}}
+
+function s:screenGnuScreen.newTerminal() dict " {{{
+  return s:StartTerminal('screen -S ' . g:ScreenShellSession)
+endfunction " }}}
+
+function s:screenGnuScreen.newTerminalMulti() dict " {{{
+  return s:StartTerminal('screen -S ' . g:ScreenShellSession . ' -x')
+endfunction " }}}
+
+function s:screenGnuScreen.newTerminalResume() dict " {{{
+  return s:StartTerminal('screen -r ' . g:ScreenShellSession)
+endfunction " }}}
+
+function s:screenGnuScreen.newWindow(focus) dict " {{{
+  return self.exec(printf(
+    \ '-X eval "screen -t %s" %s',
+    \ g:ScreenShellWindow,
+    \ a:focus ? '""' : '"other"'))
+endfunction " }}}
+
+function s:screenGnuScreen.openRegion() dict " {{{
+  return self.exec('-X eval ' .
+    \ '"split" ' .
+    \ '"focus down" ' .
+    \ '"resize ' . g:ScreenShellHeight . '" ' .
+    \ '"screen -t ' . g:ScreenShellWindow . '" ')
+endfunction " }}}
+
+function s:screenGnuScreen.setTitle() dict " {{{
+  return self.exec('-X title ' . g:ScreenShellWindow)
+endfunction " }}}
+
+function s:screenGnuScreen.send(value) dict " {{{
+  return self.exec('-p ' . g:ScreenShellWindow . ' -X stuff "' . a:value . '"')
+endfunction " }}}
+
+function s:screenGnuScreen.sendTempBuffer(tmp) dict " {{{
+  if exists('g:ScreenShellWindow')
+    let result = self.exec(
+      \ '-p ' . g:ScreenShellWindow .  ' -X eval ' .
+      \ '"msgminwait 0" ' .
+      \ '"readbuf ' . a:tmp . '" ' .
+      \ '"at ' . g:ScreenShellWindow . ' paste ." ' .
+      \ '"msgminwait 1"')
+  else
+    let result = self.exec(
+      \ '-X eval ' .
+      \ '"msgminwait 0" ' .
+      \ '"readbuf ' . a:tmp . '" ' .
+      \ '"paste ." ' .
+      \ '"msgminwait 1"')
+  endif
+  return result
+endfunction " }}}
+
+function s:screenGnuScreen.focus() dict " {{{
+  return self.exec('-X focus bottom')
+endfunction " }}}
+
+function s:screenGnuScreen.quit() dict " {{{
+  return self.exec('-X quit')
+endfunction " }}}
+
+function s:screenGnuScreen.exec(cmd) dict " {{{
+  let cmd = 'screen '
+  if exists('g:ScreenShellSession')
+    let cmd .= '-S ' . g:ScreenShellSession . ' '
+  endif
+  let cmd .= a:cmd
+
+  if has('win32unix')
+    let result = ''
+    exec 'silent! !' . cmd
+    redraw!
+  else " system() works for windows gvim too
+    let result = system(cmd)
+  endif
+  return result
+endfunction " }}}
+
+let s:screenTmux = {}
+
+function s:screenTmux.isValid() dict " {{{
+  if !executable('tmux')
+    echoerr 'tmux not found in your path'
+    return 0
+  endif
+
+  if has('win32') || has('win64')
+    echoerr 'ScreenShell does not currently support tmux on windows.'
+    return 0
+  endif
+
+  return 1
+endfunction " }}}
+
+function s:screenTmux.attachSession(session) dict " {{{
+  " TODO: currently unable to implement this since we use -S which creates a
+  " new server, which a tmux list-sessions wouldn't be able to talk to.  As
+  " for sessions created on the default server, we can get the list of
+  " sessions, but tmux doesn't appear to have a way to send commands targeting
+  " a specific session, which is why we use -S to target servers.
+  echom 'Attaching to an existing session is currently not supported with tmux.'
+  return
+endfunction " }}}
+
+function s:screenTmux.bootstrap(server, sessionfile, cmd) dict " {{{
+  exec printf('silent! !tmux %s -S %s new-session ' .
+    \ '"vim %s -c \"silent source %s\" -c \"ScreenShell %s\""',
+    \ g:ScreenShellTmuxInitArgs, g:ScreenShellSession,
+    \ a:server, escape(a:sessionfile, ' '), a:cmd)
+endfunction " }}}
+
+function s:screenTmux.newSessionName() dict " {{{
+  return tempname()
+endfunction " }}}
+
+function s:screenTmux.newTerminal() dict " {{{
+  return s:StartTerminal(printf(
+    \ 'tmux %s -S %s', g:ScreenShellTmuxInitArgs, g:ScreenShellSession))
+endfunction " }}}
+
+function s:screenTmux.newTerminalResume() dict " {{{
+  return s:StartTerminal(printf(
+    \ 'tmux %s -S %s  attach-session',
+    \ g:ScreenShellTmuxInitArgs, g:ScreenShellSession))
+endfunction " }}}
+
+function s:screenTmux.newWindow(focus) dict " {{{
+  return self.exec('new-window -n ' . g:ScreenShellWindow . (a:focus ? '' : ' -d'))
+endfunction " }}}
+
+function s:screenTmux.openRegion() dict " {{{
+  let result = self.exec(
+    \ 'split -l ' . g:ScreenShellHeight . ' ; ' .
+    \ 'rename-window ' . g:ScreenShellWindow)
+  if v:shell_error
+    return result
+  endif
+endfunction " }}}
+
+function s:screenTmux.setTitle() dict " {{{
+  return self.exec('rename-window ' . g:ScreenShellWindow)
+endfunction " }}}
+
+function s:screenTmux.send(value) dict " {{{
+  let result = self.focusWindow()
+  if v:shell_error
+    return result
+  endif
+  return self.exec(printf('set-buffer "%s" ; paste-buffer', a:value))
+endfunction " }}}
+
+function s:screenTmux.sendTempBuffer(tmp) dict " {{{
+  let result = self.focusWindow()
+  if v:shell_error
+    return result
+  endif
+
+  " hacky: how can we be sure the shell is at pane index 1 and vim at index 0?
+  if expand('$TERM') =~ '^screen'
+    call self.exec('select-pane -t 1')
+  endif
+  let result = self.exec(printf(
+    \ 'load-buffer %s ; ' .
+    \ 'paste-buffer', a:tmp
+    \ ))
+  if expand('$TERM') =~ '^screen'
+    call self.exec('select-pane -t 0')
+  endif
+
+  return result
+endfunction " }}}
+
+function s:screenTmux.focus() dict " {{{
+  return self.exec('down-pane')
+endfunction " }}}
+
+function s:screenTmux.quit() dict " {{{
+  return self.exec('kill-session')
+endfunction " }}}
+
+function s:screenTmux.exec(cmd) dict " {{{
+  let cmd = 'tmux '
+
+  if exists('g:ScreenShellSession')
+    let cmd .= '-S ' . g:ScreenShellSession . ' '
+  endif
+
+  return system(cmd . escape(a:cmd, ';'))
+endfunction " }}}
+
+function s:screenTmux.focusWindow() dict " {{{
+  if !exists('g:ScreenShellWindow')
+    return
+  endif
+  let result = self.exec('list-windows')
+  if v:shell_error
+    return result
+  endif
+
+  let windows = filter(
+    \ split(result, "\n"),
+    \ 'v:val =~ "^\\s*\\d\\+:\\s\\+' . g:ScreenShellWindow . '"')
+  if len(windows)
+    let window = substitute(windows[0], '^\s*\(\d\+\):.*', '\1', '')
+    return self.exec('select-window -t:' . window)
+  endif
+endfunction " }}}
+
+let &cpo = s:save_cpo
 
 " vim:ft=vim:fdm=marker
