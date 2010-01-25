@@ -1,5 +1,5 @@
 " Author: Eric Van Dewoestine <ervandew@gmail.com>
-" Version: 1.0
+" Version: 1.1
 " GetLatestVimScripts: 2711 1 :AutoInstall: screen.vim
 "
 " Description: {{{
@@ -14,9 +14,7 @@
 " }}}
 "
 " License: {{{
-"   Software License Agreement (BSD License)
-"
-"   Copyright (c) 2009
+"   Copyright (c) 2009 - 2010
 "   All rights reserved.
 "
 "   Redistribution and use of this software in source and binary forms, with
@@ -64,9 +62,14 @@ set cpo&vim
     let g:ScreenShellTmuxInitArgs = ''
   endif
 
-  " Sets the height of the gnu screen window used for the shell.
+  " Sets the height of the gnu screen (or tmux) region used for the shell.
   if !exists('g:ScreenShellHeight')
     let g:ScreenShellHeight = 15
+  endif
+
+  " Sets the width of the screen window used for the shell.
+  if !exists('g:ScreenShellWidth')
+    let g:ScreenShellWidth = -1
   endif
 
   " Specifies whether or not to quit gnu screen when vim is closed and the
@@ -81,6 +84,11 @@ set cpo&vim
     let g:ScreenShellExternal = 0
   endif
 
+  " Sets whether to focus 'vim' or the 'shell' when a shell region is opened.
+  if !exists('g:ScreenShellInitialFocus')
+    let g:ScreenShellInitialFocus = 'vim'
+  endif
+
   " Specifies a name to be supplied to vim's --servername arg when invoked in
   " a new screen session.
   if !exists('g:ScreenShellServerName')
@@ -91,6 +99,11 @@ set cpo&vim
   " shell to use.  If not set, some common terminals will be tried.
   if !exists('g:ScreenShellTerminal')
     let g:ScreenShellTerminal = ''
+  endif
+
+  " Sets whether, and using which method, gnu screen supports vertical splits
+  if !exists('g:ScreenShellGnuScreenVerticalSupport')
+    let g:ScreenShellGnuScreenVerticalSupport = ''
   endif
 
 " }}}
@@ -112,12 +125,14 @@ set cpo&vim
 " Commands {{{
 
   if !exists(':ScreenShell')
-    command -nargs=? -complete=shellcmd ScreenShell :call <SID>ScreenShell('<args>')
-  endif
-
-  if !exists(':ScreenShellAttach')
+    command -nargs=? -complete=shellcmd ScreenShell :call <SID>ScreenShell('<args>', 'horizontal')
     command -nargs=? -complete=customlist,s:CommandCompleteScreenSessions
       \ ScreenShellAttach :call <SID>ScreenShellAttach('<args>')
+    if !has('gui_running') &&
+     \ !g:ScreenShellExternal &&
+     \ (g:ScreenImpl == 'Tmux' || g:ScreenShellGnuScreenVerticalSupport != '')
+      command -nargs=? -complete=shellcmd ScreenShellVertical :call <SID>ScreenShell('<args>', 'vertical')
+    endif
   endif
 
 " }}}
@@ -138,15 +153,27 @@ set cpo&vim
 
 " }}}
 
-" s:ScreenShell(cmd) {{{
+" s:ScreenShell(cmd, orientation) {{{
 " Open a split shell.
-function! s:ScreenShell(cmd)
+function! s:ScreenShell(cmd, orientation)
+  if g:ScreenImpl != 'GnuScreen' && g:ScreenImpl != 'Tmux'
+    echohl WarningMsg
+    echom 'Unsupported g:ScreenImpl value "' . g:ScreenImpl . '".  ' .
+      \ 'Supported values included "GnuScreen" or "Tmux".'
+    echohl Normal
+    return
+  endif
+
   if !s:screen{g:ScreenImpl}.isValid()
     return
   endif
 
+  let g:ScreenShellOrientation = a:orientation
+
   try
-    let bootstrap = !has('gui_running') && expand('$TERM') !~ '^screen'
+    let bootstrap = !has('gui_running') &&
+      \ !exists('g:ScreenShellBootstrapped') &&
+      \ expand('$TERM') !~ '^screen'
 
     " if using an external shell without the need to set the vim servername,
     " then don't bootstrap
@@ -346,6 +373,9 @@ function! s:ScreenInit(cmd)
     " remove :ScreenShell command to avoid accidentally calling it again.
     delcommand ScreenShell
     delcommand ScreenShellAttach
+    if exists(':ScreenShellVertical')
+      delcommand ScreenShellVertical
+    endif
   endif
 
   " use screen regions
@@ -579,6 +609,22 @@ function! s:GetScreenSessions()
   return results
 endfunction " }}}
 
+" s:GetSize() {{{
+function! s:GetSize()
+  if g:ScreenShellOrientation == 'vertical'
+    let size = g:ScreenShellWidth
+    let sizefunc = 'winwidth'
+  else
+    let size = g:ScreenShellHeight
+    let sizefunc = 'winheight'
+  endif
+
+  if size <= 0
+    exec 'let size = ' . sizefunc . '(winnr()) / 2'
+  endif
+  return size
+endfunction " }}}
+
 " s:GetTerminal() {{{
 " Generate a name for the given command.
 function! s:GetTerminal()
@@ -687,10 +733,11 @@ function s:screenGnuScreen.attachSession(session) dict " {{{
 endfunction " }}}
 
 function s:screenGnuScreen.bootstrap(server, sessionfile, cmd) dict " {{{
+  let vertical = g:ScreenShellOrientation == 'vertical' ? 'Vertical' : ''
   exec 'silent! !screen -S ' . g:ScreenShellSession .
     \ ' vim ' . a:server .
     \ '-c "silent source ' . escape(a:sessionfile, ' ') . '" ' .
-    \ '-c "ScreenShell ' . a:cmd . '"'
+    \ '-c "ScreenShell' . vertical . ' ' . a:cmd . '"'
 endfunction " }}}
 
 function s:screenGnuScreen.newSessionName() dict " {{{
@@ -717,11 +764,29 @@ function s:screenGnuScreen.newWindow(focus) dict " {{{
 endfunction " }}}
 
 function s:screenGnuScreen.openRegion() dict " {{{
+  let splitcmd = 'split'
+  if g:ScreenShellOrientation == 'vertical'
+    if g:ScreenShellGnuScreenVerticalSupport == 'patch'
+      let splitcmd = 'vert_split'
+    elseif g:ScreenShellGnuScreenVerticalSupport == 'native'
+      let splitcmd = 'split -v'
+    else
+      echohl WarningMsg
+      echom 'Unsupported g:ScreenShellGnuScreenVerticalSupport value "' .
+        \ g:ScreenShellGnuScreenVerticalSupport . '". ' .
+        \ 'Supported values included "patch" or "native".'
+      echohl Normal
+      let g:ScreenShellOrientation = ''
+    endif
+  endif
+
+  let focus = g:ScreenShellInitialFocus == 'shell' ? '' : ' "focus up"'
   return self.exec('-X eval ' .
-    \ '"split" ' .
+    \ '"' . splitcmd . '" ' .
     \ '"focus down" ' .
-    \ '"resize ' . g:ScreenShellHeight . '" ' .
-    \ '"screen -t ' . g:ScreenShellWindow . '" ')
+    \ '"resize ' . s:GetSize() . '" ' .
+    \ '"screen -t ' . g:ScreenShellWindow . '"' .
+    \ focus)
 endfunction " }}}
 
 function s:screenGnuScreen.setTitle() dict " {{{
@@ -803,8 +868,9 @@ function s:screenTmux.attachSession(session) dict " {{{
 endfunction " }}}
 
 function s:screenTmux.bootstrap(server, sessionfile, cmd) dict " {{{
+  let vertical = g:ScreenShellOrientation == 'vertical' ? 'Vertical' : ''
   exec printf('silent! !tmux %s -S %s new-session ' .
-    \ '"vim %s -c \"silent source %s\" -c \"ScreenShell %s\""',
+    \ '"vim %s -c \"silent source %s\" -c \"ScreenShell' . vertical . ' %s\""',
     \ g:ScreenShellTmuxInitArgs, g:ScreenShellSession,
     \ a:server, escape(a:sessionfile, ' '), a:cmd)
 endfunction " }}}
@@ -829,9 +895,12 @@ function s:screenTmux.newWindow(focus) dict " {{{
 endfunction " }}}
 
 function s:screenTmux.openRegion() dict " {{{
+  let orient = g:ScreenShellOrientation == 'vertical' ? '-h ' : ''
+  let focus = g:ScreenShellInitialFocus == 'shell' ? '' : ' ; up-pane'
   let result = self.exec(
-    \ 'split -l ' . g:ScreenShellHeight . ' ; ' .
-    \ 'rename-window ' . g:ScreenShellWindow)
+    \ 'split ' .  orient . '-l ' . s:GetSize() . ' ; ' .
+    \ 'rename-window ' . g:ScreenShellWindow .
+    \ focus)
   if v:shell_error
     return result
   endif
@@ -856,14 +925,14 @@ function s:screenTmux.sendTempBuffer(tmp) dict " {{{
   endif
 
   " hacky: how can we be sure the shell is at pane index 1 and vim at index 0?
-  if expand('$TERM') =~ '^screen'
+  if exists('g:ScreenShellBootstrapped')
     call self.exec('select-pane -t 1')
   endif
   let result = self.exec(printf(
     \ 'load-buffer %s ; ' .
     \ 'paste-buffer', a:tmp
     \ ))
-  if expand('$TERM') =~ '^screen'
+  if exists('g:ScreenShellBootstrapped')
     call self.exec('select-pane -t 0')
   endif
 

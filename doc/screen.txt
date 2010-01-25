@@ -22,6 +22,8 @@ Screen                                      *screen*
      Server name                        |screen-servername|
      Terminal                           |screen-terminal|
 4. Script integration                   |screen-scriptintegration|
+5. Gotchas                              |screen-gotchas|
+6. Troubleshooting                      |screen-troubleshooting|
 
 ==============================================================================
 1. Introduction                             *screen-intro*
@@ -96,6 +98,19 @@ Below is a comprehensive list of the commands which screen.vim provides:
        shell.
        Ex. :ScreenShell ipython
 
+:ScreenShellVertical [cmd]     *screen-shell-vertical* *:ScreenShellVertical*
+  Just like |:ScreenShell| but when creating the split region for the shell, a
+  vertical split is used instead of the default horizontal split.  Supported
+  via tmux by default, but gnu screen requires the vertical split patch
+  (http://fungi.yuggoth.org/vsp4s/) or the unreleased screen 4.1 code and you
+  must explicitly enable support for gnu screen vertical splitting in
+  screen.vim by adding the following to your vimrc, indicating whether you are
+  using a patched gnu screen or the 4.1 code base:
+    let g:ScreenShellGnuScreenVerticalSupport = 'patch'
+      or
+    let g:ScreenShellGnuScreenVerticalSupport = 'native'
+
+
 :ScreenShellAttach [session]        *screen-shellattach* *:ScreenShellAttach*
   Sets the necessary internal variables to allow :ScreenSend invocations to
   send to the specified screen session.  If no session is provided, then the
@@ -143,7 +158,20 @@ Shell height                                *screen-shellheight*
 
 g:ScreenShellHeight (default value: 15)
 
-Sets the height of the gnu screen (or tmux) region used for the shell.
+Sets the height of the gnu screen (or tmux) region used for the shell.  When
+the value is less than or equal to 0, then half of vim's reported window
+height will be used.
+
+
+Shell width                                 *screen-shellwidth*
+                                            *g:ScreenShellWidth*
+
+g:ScreenShellWidth (default value: -1)
+
+Sets the width of the gnu screen (or tmux) region used for the shell when
+splitting the region vertically (vertical split support in gnu screen requires
+the vertical split patch).  When the value is less than or equal to 0, then
+half of vim's reported window width will be used.
 
 
 Quit on exit                                *screen-quitonexit*
@@ -163,6 +191,15 @@ g:ScreenShellExternal (default value: 0)
 When non-zero and not already in a screen session, an external shell will be
 spawned instead of using a split region for the shell.  Note: when using gvim,
 an external shell is always used.
+
+
+Initial focus                               *screen-focus*
+                                            *g:ScreenShellInitialFocus*
+
+g:ScreenShellInitialFocus (default value: 'vim')
+
+When set to 'shell' the newly created shell region will be focused when first
+creating the shell region.
 
 
 Server Name                                 *screen-servername*
@@ -206,7 +243,7 @@ Sending a list of strings is also supported:
 You can test that the funcref exists using:
    exists('ScreenShellSend')
 
-In addition to sending text to the screen shell, another funcref is availble
+In addition to sending text to the screen shell, another funcref is available
 allowing you to focus the shell region in screen.  Note: focusing an external
 screen shell is not supported.
 
@@ -227,6 +264,43 @@ swap files already existing.  So try to avoid detaching.
 Not all vim plugins support saving state to or loading from vim session files,
 so when running :ScreenShell some buffers may not load correctly if they are
 backed by such a plugin.
+
+
+==============================================================================
+5. Troubleshooting                          *screen-troubleshooting*
+
+Below are a list of possible issues you may encounter and some info on
+resolving those issues.
+
+- When already in a screen session, running :ScreenShell results in a nested
+  screen session instead of using the existing one.
+                                            *screen-bootstrap*
+
+  When running :ScreenShell from a console version of vim, screen.vim examines
+  the $TERM environment variable which it expects to start with 'screen'
+  ('screen', 'screen-256color', etc.) if you are in an existing screen/tmux
+  session.  Should the TERM value not start with 'screen', then screen.vim
+  assumes that a screen session must be started for you.
+
+  The cause of TERM not containing a 'screen' values is usually the result of
+  having a non-screen term value in your ~/.screenrc or the term value you are
+  using doesn't have a corresponding terminfo file resulting in $TERM being
+  set to some other value. Take a look at the |screen-256color| docs below for
+  more information.
+
+- 256 color support                         *screen-256color*
+
+  To enable 256 color support in screen you'll need to add the following to
+  your ~/.screenrc:
+
+    term screen-256color
+
+  Please note that this will set your $TERM to 'screen-256color' which will
+  require that your system has a corresponding terminfo file.  Not all systems
+  have this installed by default so you may need to install an additional
+  package:
+
+    ubuntu - $ apt-get install ncurses-term
 
 
 vim:tw=78:ts=8:ft=help:norl:
