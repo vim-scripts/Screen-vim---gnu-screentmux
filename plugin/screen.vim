@@ -1,5 +1,5 @@
 " Author: Eric Van Dewoestine <ervandew@gmail.com>
-" Version: 1.2
+" Version: 1.3
 " GetLatestVimScripts: 2711 1 :AutoInstall: screen.vim
 "
 " Description: {{{
@@ -53,6 +53,8 @@ set cpo&vim
 
 " Global Variables {{{
 
+  let g:ScreenVersion = '1.3'
+
   if !exists('g:ScreenImpl')
     let g:ScreenImpl = 'GnuScreen'
     "let g:ScreenImpl = 'Tmux'
@@ -89,13 +91,7 @@ set cpo&vim
     let g:ScreenShellInitialFocus = 'vim'
   endif
 
-  " Specifies a name to be supplied to vim's --servername arg when invoked in
-  " a new screen session.
-  if !exists('g:ScreenShellServerName')
-    let g:ScreenShellServerName = g:ScreenShellExternal ? '' : 'vim'
-  endif
-
-  " When g:ScreenShellExternal is set, this variable specifies the prefered
+  " When g:ScreenShellExternal is set, this variable specifies the preferred
   " shell to use.  If not set, some common terminals will be tried.
   if !exists('g:ScreenShellTerminal')
     let g:ScreenShellTerminal = ''
@@ -104,6 +100,18 @@ set cpo&vim
   " Sets whether, and using which method, gnu screen supports vertical splits
   if !exists('g:ScreenShellGnuScreenVerticalSupport')
     let g:ScreenShellGnuScreenVerticalSupport = ''
+  endif
+
+  " Sets whether the current screen region should be targeted when attaching
+  " to an existing screen session.
+  if !exists('g:ScreenShellAttachTargetCurrent')
+    let g:ScreenShellAttachTargetCurrent = 0
+  endif
+
+  " Sets whether tabs should be expand to prevent completion attempts by the
+  " target application when sending text to it.
+  if !exists('g:ScreenShellExpandTabs')
+    let g:ScreenShellExpandTabs = 0
   endif
 
 " }}}
