@@ -17,9 +17,6 @@ should also work on any unix based platform where screen is supported
 Windows Users: Whether you are using gvim or not, you will need cygwin
 installed with cygwin's bin directory in your windows PATH.
 
-You can also find this screen plugin in my vimfiles github repository:
-http://github.com/ervandew/screen
-
 Commands:
   :ScreenShell [cmd] - Starts a screen hosted shell performing the
     following steps depending on your environment.
@@ -64,3 +61,4 @@ An example workflow may be:
       or
     :qa
 
+github repo: http://github.com/ervandew/screen
